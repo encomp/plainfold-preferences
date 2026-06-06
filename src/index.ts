@@ -1,2 +1,5 @@
-// Barrel export - will be populated as components are created
-export {}
+export { PfSettingsPage } from './PfSettingsPage'
+export { PfSettingsSection } from './PfSettingsSection'
+export { PfDangerZone } from './PfDangerZone'
+export { PfAppInfo } from './PfAppInfo'
+export { PfThemeGallery } from './PfThemeGallery'
