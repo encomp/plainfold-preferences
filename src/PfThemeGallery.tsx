@@ -41,7 +41,11 @@ export function PfThemeGallery({ 'data-testid': testId, extraBundledThemes, defa
 
   const handleApply = async (theme: PfTheme) => {
     applyTheme(theme)
-    await Settings.set(ACTIVE_THEME_KEY, theme)
+    try {
+      await Settings.set(ACTIVE_THEME_KEY, theme)
+    } catch {
+      // blocked storage: the theme is applied for this session
+    }
     setActiveThemeId(theme.id)
     onThemeChange?.(theme)
   }
@@ -53,6 +57,7 @@ export function PfThemeGallery({ 'data-testid': testId, extraBundledThemes, defa
     } catch {
       // blocked storage: still follow the device for this session
     }
+    setActiveThemeId('')
     followDevice.onSelect()
   }
 

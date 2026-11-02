@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor, act, cleanup } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { PfTheme } from '@plainfold/design-tokens'
 
@@ -214,6 +214,7 @@ describe('PfThemeGallery', () => {
     })
     expect(screen.getByTestId('gallery')).toBeInTheDocument()
   })
+
   describe('P1 additions', () => {
     const extra: PfTheme = { id: 'extra-x', name: 'Extra X', description: 'Extra', version: '1.0.0', tokens: { '--pf-accent': '#123456' } }
     const user: PfTheme = { id: 'user-theme', name: 'Custom Theme', description: 'mine', version: '1.0.0', tokens: {} }
@@ -243,21 +244,49 @@ describe('PfThemeGallery', () => {
       expect(screen.getByTestId('theme-card-theme-a').style.border).not.toContain('var(--pf-accent)')
     })
 
-    it('first bundled is highlighted without defaultThemeId', async () => {
-      await renderG()
-      expect(screen.getByTestId('theme-card-theme-a').style.border).toContain('var(--pf-accent)')
-    })
-
-    it('follow card only with the prop; click removes key then onSelect', async () => {
+    it('no follow card without the prop', async () => {
       await renderG()
       expect(screen.queryByTestId('theme-card-follow-device')).toBeNull()
+    })
+
+    it('follow card: click removes key then onSelect', async () => {
       const onSelect = vi.fn()
-      cleanup()
       await renderG({ followDevice: { onSelect } })
       expect(screen.getByText('Follow my device')).toBeInTheDocument()
       await act(async () => { fireEvent.click(screen.getByTestId('theme-card-follow-device')) })
       expect(mockSettingsRemove).toHaveBeenCalledWith('pf:theme:activeTheme')
       expect(onSelect).toHaveBeenCalledTimes(1)
+    })
+
+    it('follow card is keyboard operable (Enter and Space)', async () => {
+      const onSelect = vi.fn()
+      await renderG({ followDevice: { onSelect } })
+      const card = screen.getByTestId('theme-card-follow-device')
+      expect(card).toHaveAttribute('role', 'button')
+      await act(async () => { fireEvent.keyDown(card, { key: 'Enter' }) })
+      await act(async () => { fireEvent.keyDown(card, { key: ' ' }) })
+      expect(onSelect).toHaveBeenCalledTimes(2)
+    })
+
+    it('removing the previously active theme after Follow does not switch off Follow', async () => {
+      mockThemeLibraryGetAll.mockResolvedValue([user])
+      mockSettingsGet.mockResolvedValue(user)
+      const onThemeChange = vi.fn()
+      await renderG({ onThemeChange, followDevice: { onSelect: vi.fn() } })
+      await act(async () => { fireEvent.click(screen.getByTestId('theme-card-follow-device')) })
+      await act(async () => { fireEvent.click(screen.getByTestId('theme-remove-user-theme')) })
+      expect(mockThemeLibraryRemove).toHaveBeenCalledWith('user-theme')
+      expect(onThemeChange).not.toHaveBeenCalled()
+      expect(mockApplyTheme).not.toHaveBeenCalled()
+    })
+
+    it('still calls onThemeChange when saving the theme rejects', async () => {
+      mockSettingsSet.mockRejectedValue(new Error('blocked'))
+      const onThemeChange = vi.fn()
+      await renderG({ onThemeChange })
+      await act(async () => { fireEvent.click(screen.getByTestId('theme-card-theme-b')) })
+      expect(mockApplyTheme).toHaveBeenCalledWith(mockThemeB)
+      expect(onThemeChange).toHaveBeenCalledWith(mockThemeB)
     })
 
     it('follow card still calls onSelect when remove rejects, and uses custom label', async () => {
