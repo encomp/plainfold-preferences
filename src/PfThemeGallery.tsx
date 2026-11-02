@@ -4,38 +4,64 @@ import { Settings } from '@plainfold/store'
 import type { PfTheme } from '@plainfold/design-tokens'
 
 interface PfThemeGalleryProps {
+  /** Extra built-in themes shown after BUNDLED_THEMES (no Remove button, deduped by id). */
+  extraBundledThemes?: PfTheme[]
+  /** Highlighted when nothing is saved. Defaults to the first bundled theme. */
+  defaultThemeId?: string
+  /** Called after a theme is picked and saved, and for the fallback when the active installed theme is removed. */
+  onThemeChange?: (theme: PfTheme) => void
+  /** Adds a first card that clears the saved theme and calls onSelect. */
+  followDevice?: { label?: string; selected?: boolean; onSelect: () => void }
   'data-testid'?: string
 }
 
 const ACTIVE_THEME_KEY = 'pf:theme:activeTheme'
 
-export function PfThemeGallery({ 'data-testid': testId }: PfThemeGalleryProps) {
+export function PfThemeGallery({ 'data-testid': testId, extraBundledThemes, defaultThemeId, onThemeChange, followDevice }: PfThemeGalleryProps) {
   const [activeThemeId, setActiveThemeId] = useState<string>('')
   const [installedThemes, setInstalledThemes] = useState<PfTheme[]>([])
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
+  const allBundled = [...BUNDLED_THEMES, ...(extraBundledThemes ?? [])].filter(
+    (t, i, arr) => arr.findIndex(o => o.id === t.id) === i,
+  )
+  const fallbackId = defaultThemeId ?? BUNDLED_THEMES[0]?.id ?? ''
+
   useEffect(() => {
     async function init() {
       const active = await Settings.get<PfTheme>(ACTIVE_THEME_KEY)
-      setActiveThemeId(active?.id ?? BUNDLED_THEMES[0]?.id ?? '')
+      setActiveThemeId(active?.id ?? fallbackId)
       const installed = await ThemeLibrary.getAll()
       setInstalledThemes(installed)
     }
     init()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const handleApply = async (theme: PfTheme) => {
     applyTheme(theme)
     await Settings.set(ACTIVE_THEME_KEY, theme)
     setActiveThemeId(theme.id)
+    onThemeChange?.(theme)
+  }
+
+  const handleFollow = async () => {
+    if (!followDevice) return
+    try {
+      await Settings.remove(ACTIVE_THEME_KEY)
+    } catch {
+      // blocked storage: still follow the device for this session
+    }
+    followDevice.onSelect()
   }
 
   const handleRemove = async (theme: PfTheme) => {
     await ThemeLibrary.remove(theme.id)
     setInstalledThemes(prev => prev.filter(t => t.id !== theme.id))
-    if (activeThemeId === theme.id && BUNDLED_THEMES[0]) {
-      await handleApply(BUNDLED_THEMES[0])
+    if (activeThemeId === theme.id) {
+      const fallback = allBundled.find(t => t.id === fallbackId) ?? allBundled[0]
+      if (fallback) await handleApply(fallback)
     }
   }
 
@@ -78,8 +104,29 @@ export function PfThemeGallery({ 'data-testid': testId }: PfThemeGalleryProps) {
 
   const swatchColors = ['--pf-accent', '--pf-positive', '--pf-warning', '--pf-danger', '--pf-bg-surface-alt']
 
-  const renderThemeCard = (theme: PfTheme, removable: boolean) => (
-    <div key={theme.id} style={cardStyle(activeThemeId === theme.id)} onClick={() => handleApply(theme)} data-testid={`theme-card-${theme.id}`}>
+  const followSelected = !!followDevice?.selected
+
+  const activate = (e: React.KeyboardEvent, fn: () => void) => {
+    if (e.target !== e.currentTarget) return
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      fn()
+    }
+  }
+
+  const renderThemeCard = (theme: PfTheme, removable: boolean) => {
+    const isActive = !followSelected && activeThemeId === theme.id
+    return (
+    <div
+      key={theme.id}
+      role="button"
+      tabIndex={0}
+      aria-pressed={isActive}
+      style={cardStyle(isActive)}
+      onClick={() => handleApply(theme)}
+      onKeyDown={(e) => activate(e, () => handleApply(theme))}
+      data-testid={`theme-card-${theme.id}`}
+    >
       <div style={{ display: 'flex', gap: '4px' }}>
         {swatchColors.map(v => (
           <div key={v} style={{ width: '16px', height: '16px', borderRadius: '50%', background: theme.tokens[v] ?? 'transparent', border: '1px solid rgba(128,128,128,0.2)' }} />
@@ -97,6 +144,24 @@ export function PfThemeGallery({ 'data-testid': testId }: PfThemeGalleryProps) {
         </button>
       )}
     </div>
+    )
+  }
+
+  const renderFollowCard = () => followDevice && (
+    <div
+      key="follow-device"
+      role="button"
+      tabIndex={0}
+      aria-pressed={followSelected}
+      style={cardStyle(followSelected)}
+      onClick={handleFollow}
+      onKeyDown={(e) => activate(e, handleFollow)}
+      data-testid="theme-card-follow-device"
+    >
+      <div style={{ fontFamily: 'var(--pf-font-ui)', fontSize: '13px', fontWeight: 600, color: 'var(--pf-text-primary)' }}>
+        {followDevice.label ?? 'Follow my device'}
+      </div>
+    </div>
   )
 
   return (
@@ -107,7 +172,8 @@ export function PfThemeGallery({ 'data-testid': testId }: PfThemeGalleryProps) {
           Bundled Themes
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px' }}>
-          {BUNDLED_THEMES.map(t => renderThemeCard(t, false))}
+          {renderFollowCard()}
+          {allBundled.map(t => renderThemeCard(t, false))}
         </div>
       </div>
 
