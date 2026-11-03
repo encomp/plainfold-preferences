@@ -8,7 +8,8 @@ interface PfThemeGalleryProps {
   extraBundledThemes?: PfTheme[]
   /** Highlighted when nothing is saved. Defaults to the first bundled theme. */
   defaultThemeId?: string
-  /** Called after a theme is picked and saved, and for the fallback when the active installed theme is removed. */
+  /** Called after a theme is picked and saved, and for the fallback when the active installed theme is removed
+   *  (with followDevice and no defaultThemeId that fallback is Follow, which calls followDevice.onSelect instead). */
   onThemeChange?: (theme: PfTheme) => void
   /** Adds a first card that clears the saved theme and calls onSelect. */
   followDevice?: { label?: string; selected?: boolean; onSelect: () => void }
@@ -65,6 +66,11 @@ export function PfThemeGallery({ 'data-testid': testId, extraBundledThemes, defa
     await ThemeLibrary.remove(theme.id)
     setInstalledThemes(prev => prev.filter(t => t.id !== theme.id))
     if (activeThemeId === theme.id) {
+      // an app that offers Follow and names no default returns to Follow, not to the first bundled theme
+      if (followDevice && defaultThemeId === undefined) {
+        await handleFollow()
+        return
+      }
       const fallback = allBundled.find(t => t.id === fallbackId) ?? allBundled[0]
       if (fallback) await handleApply(fallback)
     }
@@ -121,9 +127,9 @@ export function PfThemeGallery({ 'data-testid': testId, extraBundledThemes, defa
 
   const renderThemeCard = (theme: PfTheme, removable: boolean) => {
     const isActive = !followSelected && activeThemeId === theme.id
-    return (
+    const card = (
     <div
-      key={theme.id}
+      key={removable ? undefined : theme.id}
       role="button"
       tabIndex={0}
       aria-pressed={isActive}
@@ -139,16 +145,23 @@ export function PfThemeGallery({ 'data-testid': testId, extraBundledThemes, defa
       </div>
       <div style={{ fontFamily: 'var(--pf-font-ui)', fontSize: '13px', fontWeight: 600, color: 'var(--pf-text-primary)' }}>{theme.name}</div>
       <div style={{ fontFamily: 'var(--pf-font-ui)', fontSize: '11px', color: 'var(--pf-text-muted)' }}>{theme.description}</div>
-      {removable && (
+    </div>
+    )
+    if (!removable) return card
+    // Remove sits beside the card button, never inside it (no nested interactive controls)
+    return (
+      <div key={theme.id} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+        {card}
         <button
-          onClick={(e) => { e.stopPropagation(); handleRemove(theme) }}
+          type="button"
+          onClick={() => handleRemove(theme)}
+          aria-label={`Remove ${theme.name}`}
           data-testid={`theme-remove-${theme.id}`}
           style={{ alignSelf: 'flex-start', background: 'none', border: 'none', color: 'var(--pf-danger)', fontFamily: 'var(--pf-font-ui)', fontSize: '12px', cursor: 'pointer', padding: '2px 4px' }}
         >
           Remove
         </button>
-      )}
-    </div>
+      </div>
     )
   }
 
