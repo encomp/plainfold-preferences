@@ -26,6 +26,7 @@ export function PfThemeGallery({ 'data-testid': testId, extraBundledThemes, defa
   const [installedThemes, setInstalledThemes] = useState<PfTheme[]>([])
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const pickedRef = useRef(false) // a saved theme arriving late never overrides a pick
 
   const allBundled = [...BUNDLED_THEMES, ...(extraBundledThemes ?? [])].filter(
     (t, i, arr) => arr.findIndex(o => o.id === t.id) === i,
@@ -35,7 +36,7 @@ export function PfThemeGallery({ 'data-testid': testId, extraBundledThemes, defa
   useEffect(() => {
     async function init() {
       // blocked storage: start with the default theme and no installed themes; a read that does not settle
-      // within the timeout starts with the default, and a saved theme arriving later still wins (unless one was picked since)
+      // within the timeout starts with the default, and a saved theme arriving later still wins (unless one was picked since, tracked by pickedRef)
       const read = (async () => (await Settings.get<PfTheme>(ACTIVE_THEME_KEY))?.id)().catch(() => undefined)
       let timer: ReturnType<typeof setTimeout> | undefined
       const timedOut = Symbol()
@@ -43,7 +44,7 @@ export function PfThemeGallery({ 'data-testid': testId, extraBundledThemes, defa
       clearTimeout(timer)
       if (first === timedOut) {
         setActiveThemeId(fallbackId)
-        void read.then(id => { if (id) setActiveThemeId(cur => (cur === fallbackId ? id : cur)) })
+        void read.then(id => { if (id && !pickedRef.current) setActiveThemeId(id) })
       } else setActiveThemeId((first as string | undefined) ?? fallbackId)
       const installed = await (async () => ThemeLibrary.getAll())().catch(() => [])
       setInstalledThemes(installed)
@@ -53,6 +54,7 @@ export function PfThemeGallery({ 'data-testid': testId, extraBundledThemes, defa
   }, [])
 
   const handleApply = async (theme: PfTheme) => {
+    pickedRef.current = true
     applyTheme(theme)
     try {
       await Settings.set(ACTIVE_THEME_KEY, theme)
@@ -64,6 +66,7 @@ export function PfThemeGallery({ 'data-testid': testId, extraBundledThemes, defa
   }
 
   const handleFollow = async () => {
+    pickedRef.current = true
     if (!followDevice) return
     try {
       await Settings.remove(ACTIVE_THEME_KEY)

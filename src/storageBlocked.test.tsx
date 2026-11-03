@@ -44,4 +44,16 @@ describe('PfThemeGallery with site data blocked', () => {
     await act(async () => { late({ id: 'theme-b' }); await vi.advanceTimersByTimeAsync(10) })
     expect(screen.getByTestId('theme-card-theme-b')).toHaveAttribute('aria-pressed', 'true')
   })
+
+  it('a pick of the default made before the late read lands is not overridden', async () => {
+    vi.useFakeTimers()
+    let late: (v: unknown) => void = () => {}
+    get.mockReturnValue(new Promise(r => { late = r }))
+    await act(async () => { render(<PfThemeGallery defaultThemeId="theme-a" />) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(1500) })
+    await act(async () => { screen.getByTestId('theme-card-theme-a').click() })
+    await act(async () => { late({ id: 'theme-b' }); await vi.advanceTimersByTimeAsync(10) })
+    expect(screen.getByTestId('theme-card-theme-a')).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByTestId('theme-card-theme-b')).toHaveAttribute('aria-pressed', 'false')
+  })
 })
