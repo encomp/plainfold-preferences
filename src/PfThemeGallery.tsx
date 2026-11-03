@@ -18,6 +18,9 @@ interface PfThemeGalleryProps {
 
 const ACTIVE_THEME_KEY = 'pf:theme:activeTheme'
 
+/** How long to wait for the saved theme before showing the default (blocked site data can leave the read pending). */
+const STORAGE_READ_TIMEOUT_MS = 1500
+
 export function PfThemeGallery({ 'data-testid': testId, extraBundledThemes, defaultThemeId, onThemeChange, followDevice }: PfThemeGalleryProps) {
   const [activeThemeId, setActiveThemeId] = useState<string>('')
   const [installedThemes, setInstalledThemes] = useState<PfTheme[]>([])
@@ -31,10 +34,18 @@ export function PfThemeGallery({ 'data-testid': testId, extraBundledThemes, defa
 
   useEffect(() => {
     async function init() {
-      // blocked storage: start with the default theme and no installed themes
-      const active = await Settings.get<PfTheme>(ACTIVE_THEME_KEY).catch(() => undefined)
-      setActiveThemeId(active?.id ?? fallbackId)
-      const installed = await ThemeLibrary.getAll().catch(() => [])
+      // blocked storage: start with the default theme and no installed themes; a read that does not settle
+      // within the timeout starts with the default, and a saved theme arriving later still wins (unless one was picked since)
+      const read = (async () => (await Settings.get<PfTheme>(ACTIVE_THEME_KEY))?.id)().catch(() => undefined)
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const timedOut = Symbol()
+      const first = await Promise.race([read, new Promise<symbol>(r => { timer = setTimeout(() => r(timedOut), STORAGE_READ_TIMEOUT_MS) })])
+      clearTimeout(timer)
+      if (first === timedOut) {
+        setActiveThemeId(fallbackId)
+        void read.then(id => { if (id) setActiveThemeId(cur => (cur === fallbackId ? id : cur)) })
+      } else setActiveThemeId((first as string | undefined) ?? fallbackId)
+      const installed = await (async () => ThemeLibrary.getAll())().catch(() => [])
       setInstalledThemes(installed)
     }
     init()
@@ -64,7 +75,11 @@ export function PfThemeGallery({ 'data-testid': testId, extraBundledThemes, defa
   }
 
   const handleRemove = async (theme: PfTheme) => {
-    await ThemeLibrary.remove(theme.id)
+    try {
+      await ThemeLibrary.remove(theme.id)
+    } catch {
+      // blocked storage: the theme is removed for this session
+    }
     setInstalledThemes(prev => prev.filter(t => t.id !== theme.id))
     if (activeThemeId === theme.id) {
       // an app that offers Follow and names no default returns to Follow, not to the first bundled theme
