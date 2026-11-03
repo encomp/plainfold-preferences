@@ -31,9 +31,10 @@ export function PfThemeGallery({ 'data-testid': testId, extraBundledThemes, defa
 
   useEffect(() => {
     async function init() {
-      const active = await Settings.get<PfTheme>(ACTIVE_THEME_KEY)
+      // blocked storage: start with the default theme and no installed themes
+      const active = await Settings.get<PfTheme>(ACTIVE_THEME_KEY).catch(() => undefined)
       setActiveThemeId(active?.id ?? fallbackId)
-      const installed = await ThemeLibrary.getAll()
+      const installed = await ThemeLibrary.getAll().catch(() => [])
       setInstalledThemes(installed)
     }
     init()
