@@ -18,11 +18,15 @@ interface PfThemeGalleryProps {
 
 const ACTIVE_THEME_KEY = 'pf:theme:activeTheme'
 
+/** How long to wait for the saved theme before showing the default (blocked site data can leave the read pending). */
+const STORAGE_READ_TIMEOUT_MS = 1500
+
 export function PfThemeGallery({ 'data-testid': testId, extraBundledThemes, defaultThemeId, onThemeChange, followDevice }: PfThemeGalleryProps) {
   const [activeThemeId, setActiveThemeId] = useState<string>('')
   const [installedThemes, setInstalledThemes] = useState<PfTheme[]>([])
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const pickedRef = useRef(false) // a saved theme arriving late never overrides a pick
 
   const allBundled = [...BUNDLED_THEMES, ...(extraBundledThemes ?? [])].filter(
     (t, i, arr) => arr.findIndex(o => o.id === t.id) === i,
@@ -31,9 +35,18 @@ export function PfThemeGallery({ 'data-testid': testId, extraBundledThemes, defa
 
   useEffect(() => {
     async function init() {
-      const active = await Settings.get<PfTheme>(ACTIVE_THEME_KEY)
-      setActiveThemeId(active?.id ?? fallbackId)
-      const installed = await ThemeLibrary.getAll()
+      // blocked storage: start with the default theme and no installed themes; a read that does not settle
+      // within the timeout starts with the default, and a saved theme arriving later still wins (unless one was picked since, tracked by pickedRef)
+      const read = (async () => (await Settings.get<PfTheme>(ACTIVE_THEME_KEY))?.id)().catch(() => undefined)
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const timedOut = Symbol()
+      const first = await Promise.race([read, new Promise<symbol>(r => { timer = setTimeout(() => r(timedOut), STORAGE_READ_TIMEOUT_MS) })])
+      clearTimeout(timer)
+      if (first === timedOut) {
+        setActiveThemeId(fallbackId)
+        void read.then(id => { if (id && !pickedRef.current) setActiveThemeId(id) })
+      } else setActiveThemeId((first as string | undefined) ?? fallbackId)
+      const installed = await (async () => ThemeLibrary.getAll())().catch(() => [])
       setInstalledThemes(installed)
     }
     init()
@@ -41,6 +54,7 @@ export function PfThemeGallery({ 'data-testid': testId, extraBundledThemes, defa
   }, [])
 
   const handleApply = async (theme: PfTheme) => {
+    pickedRef.current = true
     applyTheme(theme)
     try {
       await Settings.set(ACTIVE_THEME_KEY, theme)
@@ -52,6 +66,7 @@ export function PfThemeGallery({ 'data-testid': testId, extraBundledThemes, defa
   }
 
   const handleFollow = async () => {
+    pickedRef.current = true
     if (!followDevice) return
     try {
       await Settings.remove(ACTIVE_THEME_KEY)
@@ -63,7 +78,11 @@ export function PfThemeGallery({ 'data-testid': testId, extraBundledThemes, defa
   }
 
   const handleRemove = async (theme: PfTheme) => {
-    await ThemeLibrary.remove(theme.id)
+    try {
+      await ThemeLibrary.remove(theme.id)
+    } catch {
+      // blocked storage: the theme is removed for this session
+    }
     setInstalledThemes(prev => prev.filter(t => t.id !== theme.id))
     if (activeThemeId === theme.id) {
       // an app that offers Follow and names no default returns to Follow, not to the first bundled theme
